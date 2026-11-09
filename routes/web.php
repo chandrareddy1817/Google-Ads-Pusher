@@ -10,3 +10,5 @@ Route::get('/', function () {
 })->name('dashboard');
 
 Route::get('/', [AdCampaignController::class, 'index']);
+Route::post('/api/ads/recommendations/{id}/approve', [AdCampaignController::class, 'approveRecommendation']);
+Route::post('/api/ads/recommendations/{id}/reject', [AdCampaignController::class, 'rejectRecommendation']);

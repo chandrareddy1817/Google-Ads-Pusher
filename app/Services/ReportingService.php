@@ -6,7 +6,6 @@ use Google\Ads\GoogleAds\Lib\V26\GoogleAdsClientBuilder;
 use Google\Ads\GoogleAds\Lib\OAuth2TokenBuilder;
 use Google\Ads\GoogleAds\V26\Services\SearchGoogleAdsStreamRequest;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Http;
 
 class ReportingService
 {
@@ -22,101 +21,90 @@ class ReportingService
             $googleAdsClient = (new GoogleAdsClientBuilder())
                 ->withDeveloperToken(env('GOOGLE_ADS_DEVELOPER_TOKEN'))
                 ->withOAuth2Credential($oAuth2Credential)
+                // ->withLoginCustomerId(env('GOOGLE_ADS_MANAGER_ID')) // uncomment if you access via MCC
                 ->build();
 
             $customerId = env('GOOGLE_ADS_CUSTOMER_ID') ?? env('GOOGLE_ADS_MANAGER_ID');
 
-            // 1. Fetch Live Campaigns with their current status, budget, and 30-day metrics
-            $query = "
-                SELECT 
-                    campaign.id, 
-                    campaign.name, 
+            // ---------- QUERY 1: Campaign list WITHOUT any metrics ----------
+            // No metrics.* fields => Google returns campaigns even if they have zero spend.
+            $campaignQuery = "
+                SELECT
+                    campaign.id,
+                    campaign.name,
                     campaign.status,
-                    campaign_budget.amount_micros,
-                    metrics.clicks, 
-                    metrics.impressions, 
-                    metrics.cost_micros,
-                    segments.date
-                FROM campaign 
-                WHERE segments.date DURING LAST_30_DAYS
+                    campaign_budget.amount_micros
+                FROM campaign
+                WHERE campaign.status != 'REMOVED'
                 ORDER BY campaign.id DESC
             ";
 
-            $request = SearchGoogleAdsStreamRequest::build($customerId, $query);
-            $stream = $googleAdsClient->getGoogleAdsServiceClient()->searchStream($request);
-            
-            $campaigns = [];
-            $chartData = [];
+            $request = SearchGoogleAdsStreamRequest::build($customerId, $campaignQuery);
+            $stream  = $googleAdsClient->getGoogleAdsServiceClient()->searchStream($request);
 
+            $campaigns = [];
             foreach ($stream->iterateAllElements() as $row) {
                 $campaignId = $row->getCampaign()->getId();
-                
-                // Aggregate data per campaign
-                if (!isset($campaigns[$campaignId])) {
-                    $campaigns[$campaignId] = [
-                        'id' => $campaignId,
-                        'name' => $row->getCampaign()->getName(),
-                        'status' => $row->getCampaign()->getStatus(),
-                        'budget' => $row->getCampaignBudget()->getAmountMicros() / 1000000,
-                        'clicks' => 0,
-                        'impressions' => 0,
-                        'cost' => 0,
-                    ];
-                }
+                $campaigns[$campaignId] = [
+                    'id'          => $campaignId,
+                    'name'        => $row->getCampaign()->getName(),
+                    'status'      => $row->getCampaign()->getStatus(),
+                    'budget'      => $row->getCampaignBudget()->getAmountMicros() / 1000000,
+                    'clicks'      => 0,
+                    'impressions' => 0,
+                    'cost'        => 0,
+                ];
+            }
 
-                // Sum up the metrics
-                $campaigns[$campaignId]['clicks'] += $row->getMetrics()->getClicks();
-                $campaigns[$campaignId]['impressions'] += $row->getMetrics()->getImpressions();
-                $campaigns[$campaignId]['cost'] += $row->getMetrics()->getCostMicros() / 1000000;
+            // ---------- QUERY 2: Metrics for the chart (separate query) ----------
+            $chartData = [];
+            $metricQuery = "
+                SELECT
+                    campaign.id,
+                    metrics.clicks,
+                    metrics.impressions,
+                    metrics.cost_micros,
+                    segments.date
+                FROM campaign
+                WHERE segments.date DURING LAST_30_DAYS
+                ORDER BY segments.date ASC
+            ";
 
-                // SAFE CHECK: Ensure segments and date exist before processing
-                $segments = $row->getSegments();
-                $date = ($segments !== null && $segments->getDate() !== '') ? $segments->getDate() : null;
-                
-                if ($date) {
+            try {
+                $metricRequest = SearchGoogleAdsStreamRequest::build($customerId, $metricQuery);
+                $metricStream  = $googleAdsClient->getGoogleAdsServiceClient()->searchStream($metricRequest);
+
+                foreach ($metricStream->iterateAllElements() as $row) {
+                    $campaignId = $row->getCampaign()->getId();
+                    $clicks     = (int) $row->getMetrics()->getClicks();
+                    $impressions= (int) $row->getMetrics()->getImpressions();
+                    $cost       = $row->getMetrics()->getCostMicros() / 1000000;
+                    $date       = $row->getSegments()->getDate();
+
+                    // Roll up into the campaign row
+                    if (isset($campaigns[$campaignId])) {
+                        $campaigns[$campaignId]['clicks']      += $clicks;
+                        $campaigns[$campaignId]['impressions'] += $impressions;
+                        $campaigns[$campaignId]['cost']        += $cost;
+                    }
+
+                    // Roll up into the chart
                     if (!isset($chartData[$date])) {
                         $chartData[$date] = ['date' => $date, 'clicks' => 0, 'impressions' => 0];
                     }
-                    $chartData[$date]['clicks'] += $row->getMetrics()->getClicks();
-                    $chartData[$date]['impressions'] += $row->getMetrics()->getImpressions();
+                    $chartData[$date]['clicks']      += $clicks;
+                    $chartData[$date]['impressions'] += $impressions;
                 }
+            } catch (\Exception $metricEx) {
+                // Metric query failing should NOT break the campaign table
+                Log::warning('Chart metrics query failed: ' . $metricEx->getMessage());
             }
 
-            // 2. FALLBACK: If no metrics were found (e.g. new/paused campaigns), fetch campaigns without metrics
-            // This prevents the dashboard from being completely empty when zero data exists.
-            if (empty($campaigns)) {
-                $fallbackQuery = "
-                    SELECT 
-                        campaign.id, 
-                        campaign.name, 
-                        campaign.status,
-                        campaign_budget.amount_micros
-                    FROM campaign 
-                    ORDER BY campaign.id DESC
-                ";
-                
-                $fallbackRequest = SearchGoogleAdsStreamRequest::build($customerId, $fallbackQuery);
-                $fallbackStream = $googleAdsClient->getGoogleAdsServiceClient()->searchStream($fallbackRequest);
-                
-                foreach ($fallbackStream->iterateAllElements() as $row) {
-                    $campaigns[$row->getCampaign()->getId()] = [
-                        'id' => $row->getCampaign()->getId(),
-                        'name' => $row->getCampaign()->getName(),
-                        'status' => $row->getCampaign()->getStatus(),
-                        'budget' => $row->getCampaignBudget()->getAmountMicros() / 1000000,
-                        'clicks' => 0, // Default to 0 since no metrics exist yet
-                        'impressions' => 0,
-                        'cost' => 0,
-                    ];
-                }
-            }
-
-            // Sort chart data by date
             ksort($chartData);
 
             return [
-                'campaigns' => array_values($campaigns),
-                'chart_data' => array_values($chartData)
+                'campaigns'  => array_values($campaigns),
+                'chart_data' => array_values($chartData),
             ];
 
         } catch (\Exception $e) {

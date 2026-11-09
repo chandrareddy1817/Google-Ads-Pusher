@@ -6,28 +6,103 @@ use Illuminate\Http\Request;
 use App\Services\GoogleAdsService;
 use App\Services\MetaAdsService;
 use App\Services\ReportingService;
+use App\Services\RecommendationService;
 use App\Models\AdCampaign;
+use App\Models\Recommendation;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class AdCampaignController extends Controller
 {
     /**
-     * Show the main dashboard with campaigns from the database.
+     * Show the main dashboard with campaigns and AI recommendations.
      */
-    public function index(ReportingService $reporting)
+    public function index(ReportingService $reporting, RecommendationService $recommender)
     {
-        // Fetch Live Data from Google Ads
+        // 1. Fetch Live Data from Google Ads
         $googleData = $reporting->getGoogleCampaigns();
-        
         $campaigns = $googleData['campaigns'];
         $chartData = $googleData['chart_data'];
 
-        // Calculate KPIs from Live Data
         $totalSpend = collect($campaigns)->sum('cost');
         $totalClicks = collect($campaigns)->sum('clicks');
+
+        // 2. Fetch AI Recommendations from Google Ads API
+        $apiRecommendations = $recommender->getRecommendations();
         
-        return view('dashboard', compact('campaigns', 'totalSpend', 'totalClicks', 'chartData'));
+        // Save new ones to DB (prevent duplicates using updateOrCreate)
+        foreach ($apiRecommendations as $rec) {
+            Recommendation::updateOrCreate(
+                ['resource_name' => $rec['resource_name']], // Unique identifier
+                [
+                    'type' => $rec['type'],
+                    'campaign' => $rec['campaign'],
+                    'title' => $rec['details'], // Simplify for UI
+                    'impact_estimate' => 'Est. Impressions: ' . $rec['impact_impressions'],
+                    'status' => 'PENDING'
+                ]
+            );
+        }
+
+        // Get only pending ones to show on dashboard
+        $recommendations = Recommendation::where('status', 'PENDING')->latest()->get();
+
+        return view('dashboard', compact('campaigns', 'totalSpend', 'totalClicks', 'chartData', 'recommendations'));
+    }
+
+    /**
+     * Approve and apply an AI recommendation directly to Google Ads.
+     */
+    public function approveRecommendation($id, RecommendationService $recommender, CampaignAnalyzerService $analyzer)
+    {
+        $rec = Recommendation::findOrFail($id);
+
+        // --- KEYWORD REPLACE (Gemini-generated) ---
+        if ($rec->type === 'KEYWORD_REPLACE') {
+            $data = json_decode($rec->action_data, true);
+
+            if (empty($data['criterion_resource_name']) || empty($data['new_text'])) {
+                return response()->json([
+                    'success' => false,
+                    'error'   => 'Recommendation is missing required keyword data.',
+                ], 422);
+            }
+
+            try {
+                $analyzer->applyKeywordReplacement($data);
+            } catch (\Exception $e) {
+                return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
+            }
+
+            $rec->update(['status' => 'APPLIED']);
+            return response()->json(['success' => true]);
+        }
+
+        // --- Native Google Ads recommendation ---
+        if (in_array($rec->type, ['BUDGET', 'CAMPAIGN_BUDGET', 'MOVE_UNUSED_BUDGET', 'RESPONSIVE_SEARCH_AD_IMPROVE_AD_STRENGTH'])) {
+            $result = $recommender->applyRecommendation($rec->resource_name);
+            if ($result['success']) {
+                $rec->update(['status' => 'APPLIED']);
+                return response()->json(['success' => true]);
+            }
+            return response()->json([
+                'success' => false,
+                'error'   => $result['error'] ?? 'Google Ads rejected the recommendation.',
+            ], 500);
+        }
+
+        return response()->json([
+            'success' => false,
+            'error'   => 'Unsupported recommendation type: ' . $rec->type,
+        ], 422);
+    }
+
+    public function rejectRecommendation($id)
+    {
+        $rec = Recommendation::findOrFail($id);
+        $rec->update(['status' => 'REJECTED']);
+
+        return response()->json(['success' => true]);
     }
 
     /**
@@ -41,7 +116,6 @@ class AdCampaignController extends Controller
         }
 
         try {
-            // We use withoutVerifying() here to bypass local WAMP SSL issues
             $response = Http::withHeaders([
                 'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             ])->timeout(20)->withoutVerifying()->get($request->url);
@@ -94,7 +168,6 @@ class AdCampaignController extends Controller
      */
     public function publish(Request $request)
     {
-        // 1. Validation
         $validated = $request->validate([
             'platform' => 'required|in:google,meta,all',
             'campaign_name' => 'required|string',
@@ -112,12 +185,11 @@ class AdCampaignController extends Controller
             'pmax_landscape_img' => 'nullable|string',
             'pmax_logo_img' => 'nullable|string',
             'video_base64' => 'nullable|string',
-            'youtube_video_id' => 'required_if:campaign_type,VIDEO,DEMAND_GEN|nullable|string',
+            'youtube_video_id' => 'required_if:campaign_type,DEMAND_GEN|nullable|string',
             'image_landscape_b64' => 'nullable|string',
             'image_logo_b64' => 'nullable|string',
         ]);
 
-        // 2. Manual checks for specific campaign types
         if (in_array($validated['platform'], ['meta', 'all']) && empty($validated['image_base64'])) {
             return response()->json(['success' => false, 'error' => 'Main Image is required for Meta Ads.'], 422);
         }
@@ -135,13 +207,11 @@ class AdCampaignController extends Controller
         $results = [];
 
         try {
-            // 3. Push to Google Ads (Using .env credentials since this is a single-tenant admin dashboard)
             if (in_array($validated['platform'], ['google', 'all'])) {
                 $googleAds = new GoogleAdsService();
                 $results['google'] = $googleAds->publishCampaign($validated);
             }
             
-            // 4. Push to Meta Ads
             if (in_array($validated['platform'], ['meta', 'all'])) {
                 $metaAds = new MetaAdsService();
                 $results['meta'] = $metaAds->publishCampaign([
@@ -156,7 +226,6 @@ class AdCampaignController extends Controller
                 ]);
             }
 
-            // 5. Save to Database
             AdCampaign::create([
                 'campaign_name' => $validated['campaign_name'],
                 'platform' => $validated['platform'],
