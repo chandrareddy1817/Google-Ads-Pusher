@@ -18,6 +18,8 @@ use Google\Ads\GoogleAds\V26\Common\ResponsiveSearchAdInfo;
 use Google\Ads\GoogleAds\V26\Common\ResponsiveDisplayAdInfo;
 use Google\Ads\GoogleAds\V26\Common\YoutubeVideoAsset;
 use Google\Ads\GoogleAds\V26\Common\AdTextAsset;
+use Google\Ads\GoogleAds\V26\Common\AdVideoAsset;          // ✅ ADDED
+use Google\Ads\GoogleAds\V26\Common\DemandGenMultiAssetAdInfo; // ✅ ADDED
 use Google\Ads\GoogleAds\V26\Common\KeywordInfo;
 use Google\Ads\GoogleAds\V26\Common\TextAsset;
 use Google\Ads\GoogleAds\V26\Common\ImageAsset;
@@ -49,6 +51,7 @@ use Google\Ads\GoogleAds\V26\Services\MutateAssetGroupsRequest;
 use Google\Ads\GoogleAds\V26\Services\MutateAssetGroupAssetsRequest;
 use Google\Ads\GoogleAds\V26\Services\MutateAssetsRequest;
 use Google\Ads\GoogleAds\V26\Services\MutateAdGroupAssetsRequest;
+use Illuminate\Support\Facades\Log;
 
 class GoogleAdsService
 {
@@ -75,13 +78,20 @@ class GoogleAdsService
     {
         $type = $data['campaign_type'] ?? 'SEARCH';
 
-        $budgetAmount = $data['currency'] === 'INR' ? ($data['daily_budget'] / 83.00) : $data['daily_budget'];
-        $budgetAmount = round($budgetAmount, 2);
+        // Budget: raw value in account currency (INR). No FX conversion.
+        $budgetAmount = round((float) $data['daily_budget'], 2);
+
+        Log::info('GoogleAds budget', [
+            'input'        => $data['daily_budget'],
+            'currency'     => $data['currency'],
+            'sent_display' => $budgetAmount . ' ' . $data['currency'],
+            'sent_micros'  => (int) ($budgetAmount * 1000000),
+        ]);
 
         // 1. Create Budget
         $budget = new CampaignBudget([
             'name'              => 'Budget_' . $data['campaign_name'] . '_' . time(),
-            'amount_micros'     => (int)($budgetAmount * 1000000),
+            'amount_micros'     => (int) ($budgetAmount * 1000000),
             'explicitly_shared' => false,
         ]);
         $budgetOp = new CampaignBudgetOperation();
@@ -99,7 +109,7 @@ class GoogleAdsService
             default           => AdvertisingChannelType::SEARCH,
         };
 
-        // 3. Create Campaign (bidding strategy set explicitly after construction)
+        // 3. Create Campaign (PAUSED)
         $campaign = new Campaign([
             'name'                              => $data['campaign_name'],
             'advertising_channel_type'          => $channelType,
@@ -121,18 +131,14 @@ class GoogleAdsService
         );
         $campaignResourceName = $campaignResponse->getResults()[0]->getResourceName();
 
-        // 4. Route
-        if ($type === 'SEARCH') {
-            return $this->buildSearch($data, $campaignResourceName);
-        } elseif ($type === 'PERFORMANCE_MAX') {
-            return $this->buildPMax($data, $campaignResourceName);
-        } elseif ($type === 'DISPLAY') {
-            return $this->buildDisplay($data, $campaignResourceName);
-        } elseif ($type === 'DEMAND_GEN') {
-            return $this->buildDemandGen($data, $campaignResourceName);
-        }
-
-        throw new \InvalidArgumentException("Unsupported campaign type: {$type}");
+        // 4. Route to builder
+        return match ($type) {
+            'SEARCH'          => $this->buildSearch($data, $campaignResourceName),
+            'PERFORMANCE_MAX' => $this->buildPMax($data, $campaignResourceName),
+            'DISPLAY'         => $this->buildDisplay($data, $campaignResourceName),
+            'DEMAND_GEN'      => $this->buildDemandGen($data, $campaignResourceName),
+            default           => throw new \InvalidArgumentException("Unsupported campaign type: {$type}"),
+        };
     }
 
     private function buildSearch($data, $campaignResourceName)
@@ -150,7 +156,7 @@ class GoogleAdsService
         $adGroupResourceName = $adGroupResponse->getResults()[0]->getResourceName();
 
         $criterionOps = [];
-        foreach ($data['keywords'] as $kw) {
+        foreach (($data['keywords'] ?? []) as $kw) {
             if (empty(trim($kw))) continue;
             $criterion = new AdGroupCriterion([
                 'ad_group' => $adGroupResourceName,
@@ -227,9 +233,9 @@ class GoogleAdsService
         }
         $businessNameAsset = $this->uploadTextAsset($data['pmax_business_name'] ?? 'My Business');
 
-        $landscapeAsset = $this->uploadImageAsset($data['pmax_landscape_img'] ?? $data['image_base64']);
+        $landscapeAsset = $this->uploadImageAsset($data['image_landscape_b64']);
         $squareAsset    = $this->uploadImageAsset($data['image_base64']);
-        $logoAsset      = $this->uploadImageAsset($data['pmax_logo_img'] ?? $data['image_base64']);
+        $logoAsset      = $this->uploadImageAsset($data['image_logo_b64']);
 
         $assetLinks = [];
         foreach ($headlineAssets as $a) $assetLinks[] = $this->linkAsset($assetGroupResourceName, $a, 'HEADLINE');
@@ -255,6 +261,7 @@ class GoogleAdsService
 
     private function buildDisplay($data, $campaignResourceName)
     {
+        // 1. Create ad group (using AdGroupServiceClient, this part is correct)
         $adGroup = new AdGroup([
             'name'     => $data['campaign_name'] . ' - Ad Group',
             'campaign' => $campaignResourceName,
@@ -266,7 +273,7 @@ class GoogleAdsService
             MutateAdGroupsRequest::build($this->customerId, [$adGroupOp])
         )->getResults()[0]->getResourceName();
 
-        // Crop to exact required ratios, then upload
+        // 2. Upload images
         $landscapeResource = $this->uploadImageAsset(
             $this->cropToRatio($data['image_landscape_b64'], 1.91)
         );
@@ -277,22 +284,16 @@ class GoogleAdsService
         $logoResource = null;
         if (!empty($data['image_logo_b64'])) {
             $logoResource = $this->uploadImageAsset(
-                $this->cropToRatio($data['image_logo_b64'], 4.0)
+                $this->cropToRatio($data['image_logo_b64'], 1.0)
             );
         }
 
-        // Wrap resource strings into AdImageAsset objects
+        // 3. Build assets
         $landscapeAsset = new AdImageAsset();
         $landscapeAsset->setAsset($landscapeResource);
 
         $squareAsset = new AdImageAsset();
         $squareAsset->setAsset($squareResource);
-
-        $logoAsset = null;
-        if ($logoResource) {
-            $logoAsset = new AdImageAsset();
-            $logoAsset->setAsset($logoResource);
-        }
 
         $displayInfo = [
             'marketing_images'        => [$landscapeAsset],
@@ -302,22 +303,29 @@ class GoogleAdsService
             'long_headline'           => new AdTextAsset(['text' => substr($data['headlines'][0] ?? 'Learn More', 0, 90)]),
             'descriptions'            => [new AdTextAsset(['text' => substr($data['descriptions'][0] ?? 'Visit us today.', 0, 90)])],
         ];
-        if ($logoAsset) {
-            $displayInfo['logo_images'] = [$logoAsset];
+
+        if ($logoResource) {
+            $squareLogoAsset = new AdImageAsset();
+            $squareLogoAsset->setAsset($logoResource);
+            $displayInfo['square_logo_images'] = [$squareLogoAsset];
         }
 
+        // 4. Build ad
         $ad = new Ad([
-            'final_urls'           => [$data['target_url']],
+            'name' => $data['campaign_name'] . ' - Display Ad',
+            'final_urls' => [$data['target_url']],
             'responsive_display_ad' => new ResponsiveDisplayAdInfo($displayInfo),
         ]);
 
-        $adGroupAd   = new AdGroupAd([
+        $adGroupAd = new AdGroupAd([
             'ad_group' => $adGroupResourceName,
             'status'   => AdGroupAdStatus::ENABLED,
             'ad'       => $ad,
         ]);
         $adGroupAdOp = new AdGroupAdOperation();
         $adGroupAdOp->setCreate($adGroupAd);
+
+        // ✅ Key fix: use getAdGroupAdServiceClient(), not getAdGroupServiceClient()
         $this->googleAdsClient->getAdGroupAdServiceClient()->mutateAdGroupAds(
             MutateAdGroupAdsRequest::build($this->customerId, [$adGroupAdOp])
         );
@@ -325,8 +333,12 @@ class GoogleAdsService
         return ['campaign_id' => $campaignResourceName];
     }
 
+    /**
+     * Demand Gen — FIXED: uses AdVideoAsset wrapper and correct ad field.
+     */
     private function buildDemandGen($data, $campaignResourceName)
     {
+        // 1. Create ad group (AdGroupServiceClient — correct for ad groups)
         $adGroup = new AdGroup([
             'name'     => $data['campaign_name'] . ' - Ad Group',
             'campaign' => $campaignResourceName,
@@ -338,36 +350,53 @@ class GoogleAdsService
             MutateAdGroupsRequest::build($this->customerId, [$adGroupOp])
         )->getResults()[0]->getResourceName();
 
+        // 2. Validate YouTube video ID
         $youtubeVideoId = $data['youtube_video_id'] ?? null;
         if (empty($youtubeVideoId)) {
             throw new \InvalidArgumentException('YouTube Video ID is required for Demand Gen video ads.');
         }
 
+        // 3. Upload YouTube video as Asset
         $videoAsset = new Asset([
             'name'                => 'YouTube Video ' . time() . '_' . uniqid(),
             'youtube_video_asset' => new YoutubeVideoAsset(['youtube_video_id' => $youtubeVideoId]),
         ]);
         $videoOp = new AssetOperation();
         $videoOp->setCreate($videoAsset);
-        $videoAssetResource = $this->googleAdsClient->getAssetServiceClient()->mutateAssets(
+        $videoAssetResourceName = $this->googleAdsClient->getAssetServiceClient()->mutateAssets(
             MutateAssetsRequest::build($this->customerId, [$videoOp])
         )->getResults()[0]->getResourceName();
 
-        // Logo min 128x128, 1:1
-        $logoResource = $this->uploadImageAsset($data['image_logo_b64'] ?? $data['image_base64']);
-        $logoAsset = new AdImageAsset();
-        $logoAsset->setAsset($logoResource);
+        // 4. Upload logo (1:1 — Demand Gen logo_images requires 1:1)
+        $logoResourceName = $this->uploadImageAsset(
+            $this->cropToRatio($data['image_logo_b64'] ?? $data['image_base64'], 1.0)
+        );
 
+        // 5. Wrap assets as typed objects
+        $videoAdAsset = new AdVideoAsset();
+        $videoAdAsset->setAsset($videoAssetResourceName);
+
+        $logoAdAsset = new AdImageAsset();
+        $logoAdAsset->setAsset($logoResourceName);
+
+        // 6. Build DemandGenVideoResponsiveAdInfo
+        // All text fields MUST be AdTextAsset — including business_name
+        $adInfo = new \Google\Ads\GoogleAds\V26\Common\DemandGenVideoResponsiveAdInfo([
+            'videos'         => [$videoAdAsset],
+            'logo_images'    => [$logoAdAsset],
+            'business_name'  => new AdTextAsset(['text' => substr($data['pmax_business_name'] ?? 'My Business', 0, 25)]),
+            'headlines'      => [new AdTextAsset(['text' => substr($data['headlines'][0] ?? 'Watch Now', 0, 30)])],
+            'long_headlines' => [new AdTextAsset(['text' => substr(
+                ($data['headlines'][0] ?? 'Watch Now') . ' ' . ($data['headlines'][1] ?? ''), 0, 90
+            )])],
+            'descriptions'   => [new AdTextAsset(['text' => substr($data['descriptions'][0] ?? 'Learn more.', 0, 90)])],
+        ]);
+
+        // 7. Build the Ad (name is required)
         $ad = new Ad([
-            'final_urls' => [$data['target_url']],
-            'demand_gen_video_responsive_ad' => new \Google\Ads\GoogleAds\V26\Common\DemandGenVideoResponsiveAdInfo([
-                'videos'         => [$videoAssetResource],
-                'logo_images'    => [$logoAsset],
-                'business_name'  => $data['pmax_business_name'] ?? 'My Business',
-                'headlines'      => [new AdTextAsset(['text' => substr($data['headlines'][0] ?? 'Watch Now', 0, 30)])],
-                'long_headlines' => [new AdTextAsset(['text' => substr(($data['headlines'][0] ?? 'Watch Now') . ' ' . ($data['headlines'][1] ?? ''), 0, 90)])],
-                'descriptions'   => [new AdTextAsset(['text' => substr($data['descriptions'][0] ?? 'Learn more.', 0, 90)])],
-            ]),
+            'name'                           => $data['campaign_name'] . ' - Demand Gen Ad',
+            'final_urls'                     => [$data['target_url']],
+            'demand_gen_video_responsive_ad' => $adInfo,
         ]);
 
         $adGroupAd   = new AdGroupAd([
@@ -377,6 +406,8 @@ class GoogleAdsService
         ]);
         $adGroupAdOp = new AdGroupAdOperation();
         $adGroupAdOp->setCreate($adGroupAd);
+
+        // ✅ Key fix: use getAdGroupAdServiceClient() — NOT getAdGroupServiceClient()
         $this->googleAdsClient->getAdGroupAdServiceClient()->mutateAdGroupAds(
             MutateAdGroupAdsRequest::build($this->customerId, [$adGroupAdOp])
         );
@@ -415,8 +446,6 @@ class GoogleAdsService
         );
     }
 
-    // Helpers
-
     private function uploadTextAsset($text)
     {
         $asset = new Asset(['text_asset' => new TextAsset(['text' => $text])]);
@@ -432,7 +461,6 @@ class GoogleAdsService
         $base64 = preg_replace('#^data:image/\w+;base64,#i', '', $base64);
         $data   = base64_decode($base64);
 
-        // Real MIME check (rejects WebP and anything not allowed by Google)
         $finfo = finfo_open(FILEINFO_MIME_TYPE);
         $mime  = finfo_buffer($finfo, $data);
         finfo_close($finfo);
@@ -451,10 +479,6 @@ class GoogleAdsService
         )->getResults()[0]->getResourceName();
     }
 
-    /**
-     * Crops an image (given as base64 data URI) to the target aspect ratio,
-     * centered, and returns the result as a JPEG data URI.
-     */
     private function cropToRatio($base64, $targetRatio)
     {
         $data = base64_decode(preg_replace('#^data:image/\w+;base64,#i', '', $base64));
@@ -467,7 +491,6 @@ class GoogleAdsService
         $h = imagesy($img);
         $currentRatio = $w / $h;
 
-        // Already compliant (within 1%)
         if (abs($currentRatio - $targetRatio) / $targetRatio <= 0.01) {
             imagedestroy($img);
             return 'data:image/jpeg;base64,' . base64_encode($data);
@@ -486,7 +509,6 @@ class GoogleAdsService
         }
 
         $cropped = imagecreatetruecolor($newW, $newH);
-        // White background for transparent PNGs
         $white = imagecolorallocate($cropped, 255, 255, 255);
         imagefill($cropped, 0, 0, $white);
         imagecopy($cropped, $img, 0, 0, $srcX, $srcY, $newW, $newH);

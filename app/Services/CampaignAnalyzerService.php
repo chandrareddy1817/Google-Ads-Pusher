@@ -13,6 +13,9 @@ use Google\Ads\GoogleAds\V26\Common\KeywordInfo;
 use Google\Ads\GoogleAds\V26\Enums\AdGroupCriterionStatusEnum\AdGroupCriterionStatus;
 use Google\Ads\GoogleAds\V26\Enums\KeywordMatchTypeEnum\KeywordMatchType;
 use Google\Ads\GoogleAds\V26\Utils\FieldMasks;
+use Google\Ads\GoogleAds\V26\Errors\GoogleAdsException;
+use Google\Ads\GoogleAds\V26\Errors\GoogleAdsError; // FIX #F: surface real errors
+use Google\Ads\GoogleAds\V26\Common\FieldMask; // FIX #4: explicit mask
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -185,14 +188,14 @@ PROMPT;
     public function applyKeywordReplacement(array $data): bool
     {
         try {
-            // 1. Pause old criterion
+            // 1. Pause old criterion — FIX #4: explicit mask, no resource_name in mask
             $old = new AdGroupCriterion([
                 'resource_name' => $data['criterion_resource_name'],
                 'status'        => AdGroupCriterionStatus::PAUSED,
             ]);
             $pauseOp = new AdGroupCriterionOperation();
             $pauseOp->setUpdate($old);
-            $pauseOp->setUpdateMask(FieldMasks::allSetFieldsOf($old));
+            $pauseOp->setUpdateMask(new FieldMask(['paths' => ['status']]));
 
             $this->googleAdsClient->getAdGroupCriterionServiceClient()->mutateAdGroupCriteria(
                 MutateAdGroupCriteriaRequest::build($this->customerId, [$pauseOp])
@@ -216,6 +219,13 @@ PROMPT;
 
             return true;
 
+        } catch (GoogleAdsException $e) { // FIX #F: surface real API errors
+            $msgs = [];
+            foreach ($e->getErrors() as $err) {
+                $msgs[] = $err->getMessage();
+            }
+            Log::error('applyKeywordReplacement failed: ' . implode('; ', $msgs));
+            throw new \RuntimeException(implode('; ', $msgs));
         } catch (\Exception $e) {
             Log::error('applyKeywordReplacement failed: ' . $e->getMessage());
             throw $e;

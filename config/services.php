@@ -39,5 +39,8 @@ return [
         'client_secret' => env('GOOGLE_ADS_CLIENT_SECRET'),
         'redirect' => 'http://127.0.0.1:8000/auth/google/callback', 
     ],
+    'fx' => [
+        'usd_inr' => env('FX_USD_INR', 83.00),
+    ],
 
 ];

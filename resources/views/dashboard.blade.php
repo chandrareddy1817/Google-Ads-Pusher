@@ -31,7 +31,7 @@
         /* ---------- Main content ---------- */
         .main-content { margin-left: 260px; padding: 24px; }
 
-        /* ---------- Mobile top bar (hidden on desktop) ---------- */
+        /* ---------- Mobile top bar ---------- */
         .mobile-topbar {
             display: none;
             position: sticky; top: 0; z-index: 1030;
@@ -78,38 +78,30 @@
         .chart-wrap { position: relative; height: 320px; }
         .chart-wrap canvas { width: 100% !important; height: 100% !important; }
 
+        /* ---------- Image previews ---------- */
+        .img-preview {
+            max-width: 100%; max-height: 100px; border-radius: 6px;
+            border: 1px solid var(--border-color); margin-top: 6px; display: block;
+        }
+        .img-hint { font-size: 0.72rem; color: var(--text-muted); margin-top: 2px; }
+
         /* ---------- Mobile breakpoint ---------- */
         @media (max-width: 767.98px) {
-            .sidebar {
-                transform: translateX(-100%);
-            }
-            .sidebar.open {
-                transform: translateX(0);
-            }
-            .main-content {
-                margin-left: 0;
-                padding: 14px;
-                padding-top: 8px;
-            }
+            .sidebar { transform: translateX(-100%); }
+            .sidebar.open { transform: translateX(0); }
+            .main-content { margin-left: 0; padding: 14px; padding-top: 8px; }
             .mobile-topbar { display: flex; align-items: center; justify-content: space-between; }
-
             .kpi-value { font-size: 1.4rem; }
             .kpi-title { font-size: 0.7rem; }
-
             .rec-row { flex-direction: column; align-items: stretch; }
             .rec-row .rec-action { width: 100%; }
             .rec-row .rec-action .btn { width: 100%; }
-
             .chart-wrap { height: 220px; }
-
             .page-title { font-size: 1.1rem; }
-
-            /* Modal: allow full width & breathing room on phones */
             .modal-dialog { margin: 0.5rem; }
             .modal-body { padding: 1rem; }
         }
 
-        /* Very small phones: 1 KPI per row handled by col classes, but keep padding tight */
         @media (max-width: 400px) {
             .main-content { padding: 10px; }
             .card-header { padding: 0.6rem 0.8rem; }
@@ -118,7 +110,7 @@
 </head>
 <body>
 
-    <!-- Mobile top bar (only visible < md) -->
+    <!-- Mobile top bar -->
     <div class="mobile-topbar d-md-none">
         <div class="d-flex align-items-center gap-2">
             <div class="bg-primary text-white p-1 rounded"><i class="bi bi-lightning-charge-fill"></i></div>
@@ -129,7 +121,7 @@
         </button>
     </div>
 
-    <!-- Backdrop for mobile sidebar -->
+    <!-- Backdrop -->
     <div class="sidebar-backdrop" id="sidebarBackdrop" onclick="toggleSidebar(false)"></div>
 
     <!-- Sidebar -->
@@ -159,30 +151,25 @@
 
         <!-- KPI Cards -->
         <div class="row g-3 g-md-4 mb-4">
-            <div class="col-12 col-sm-6 col-md-3">
+            <div class="col-12 col-sm-6 col-md-4">
                 <div class="card p-3">
                     <div class="kpi-title">Total Spend (30 Days)</div>
                     <div class="kpi-value">₹{{ number_format($totalSpend ?? 0, 2) }}</div>
                 </div>
             </div>
-            <div class="col-12 col-sm-6 col-md-3">
+            <div class="col-12 col-sm-6 col-md-4">
                 <div class="card p-3">
                     <div class="kpi-title">Total Clicks</div>
                     <div class="kpi-value">{{ number_format($totalClicks ?? 0) }}</div>
                 </div>
             </div>
-            <div class="col-12 col-sm-6 col-md-3">
+            <div class="col-12 col-sm-6 col-md-4">
                 <div class="card p-3">
                     <div class="kpi-title">Total Campaigns</div>
                     <div class="kpi-value">{{ count($campaigns) }}</div>
                 </div>
             </div>
-            <div class="col-12 col-sm-6 col-md-3">
-                <div class="card p-3">
-                    <div class="kpi-title">System Status</div>
-                    <div class="kpi-value text-success" style="font-size: 1.5rem;"><i class="bi bi-check-circle-fill"></i> Connected</div>
-                </div>
-            </div>
+            
         </div>
 
         <!-- AI Recommendations Panel -->
@@ -325,8 +312,10 @@
 
                             <div id="video-fields" class="d-none">
                                 <div class="mb-2">
-                                    <label class="form-label">YouTube Video ID (Required for Video)</label>
-                                    <input id="youtube-id" type="text" class="form-control form-control-sm" placeholder="e.g. dQw4w9WgXcQ">
+                                    <label class="form-label">YouTube Video ID (Required for Demand Gen)</label>
+                                    <input id="youtube-id" type="text" class="form-control form-control-sm"
+                                           placeholder="e.g. dQw4w9WgXcQ or full YouTube URL">
+                                    <div class="img-hint">Paste the 11-char ID or a full youtube.com / youtu.be URL.</div>
                                 </div>
                                 <div class="mb-2">
                                     <label class="form-label">Ad Headline (Max 30 chars)</label>
@@ -337,7 +326,7 @@
 
                         <!-- Right Column -->
                         <div class="col-12 col-md-6 mb-3">
-                             <div class="mb-2">
+                            <div class="mb-2">
                                 <label class="form-label">Meta Primary Text</label>
                                 <textarea id="m-primary" rows="2" class="form-control form-control-sm"></textarea>
                             </div>
@@ -372,11 +361,19 @@
                             </div>
                             <div id="image-fields" class="mb-2">
                                 <label class="form-label">Square Image (1:1, min 300x300)</label>
-                                <input type="file" id="image-upload" class="form-control form-control-sm mb-2" accept="image/jpeg,image/png,image/gif">
-                                <label class="form-label">Landscape Image (1.91:1, min 600x314)</label>
-                                <input type="file" id="image-landscape-upload" class="form-control form-control-sm mb-2">
-                                <label class="form-label">Logo (1:1, min 128x128)</label>
-                                <input type="file" id="image-logo-upload" class="form-control form-control-sm">
+                                <input type="file" id="image-upload" class="form-control form-control-sm mb-1" accept="image/jpeg,image/png,image/gif">
+                                <div class="img-hint">Will be auto-cropped to 1:1. Preview:</div>
+                                <img id="preview-square" class="img-preview d-none" alt="Square preview">
+
+                                <label class="form-label mt-2">Landscape Image (1.91:1, min 600x314)</label>
+                                <input type="file" id="image-landscape-upload" class="form-control form-control-sm mb-1" accept="image/jpeg,image/png,image/gif">
+                                <div class="img-hint">Will be auto-cropped to 1.91:1. Preview:</div>
+                                <img id="preview-landscape" class="img-preview d-none" alt="Landscape preview">
+
+                                <label class="form-label mt-2">Logo (1:1, min 128x128)</label>
+                                <input type="file" id="image-logo-upload" class="form-control form-control-sm mb-1" accept="image/jpeg,image/png,image/gif">
+                                <div class="img-hint">Will be auto-cropped to 1:1. Preview:</div>
+                                <img id="preview-logo" class="img-preview d-none" alt="Logo preview">
                             </div>
                         </div>
                     </div>
@@ -393,7 +390,9 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 
     <script>
-        // ---------- Mobile sidebar toggle ----------
+        // ============================================================
+        // Mobile sidebar toggle
+        // ============================================================
         function toggleSidebar(open) {
             const sidebar = document.getElementById('appSidebar');
             const backdrop = document.getElementById('sidebarBackdrop');
@@ -407,14 +406,15 @@
                 document.body.style.overflow = '';
             }
         }
-        // Close sidebar when a nav link is clicked (mobile)
         document.querySelectorAll('.sidebar .nav-link').forEach(el => {
             el.addEventListener('click', () => {
                 if (window.innerWidth < 768) toggleSidebar(false);
             });
         });
 
-        // ---------- Chart.js Logic ----------
+        // ============================================================
+        // Chart.js Logic
+        // ============================================================
         const chartData = @json($chartData ?? []);
         const labels = chartData.map(item => item.date);
         const clicksData = chartData.map(item => item.clicks);
@@ -441,7 +441,9 @@
             }
         });
 
-        // ---------- AI Recommendation Approval ----------
+        // ============================================================
+        // AI Recommendation Approval / Rejection
+        // ============================================================
         async function approveRec(id, btnElement) {
             btnElement.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Applying...';
             btnElement.disabled = true;
@@ -501,7 +503,9 @@
             }
         }
 
-        // ---------- Dynamic UI Toggle ----------
+        // ============================================================
+        // Dynamic UI Toggle
+        // ============================================================
         function toggleCampaignFields() {
             const type = document.getElementById('google-campaign-type').value;
             const searchFields = document.getElementById('search-fields');
@@ -512,90 +516,238 @@
                 searchFields.classList.remove('d-none');
                 videoFields.classList.add('d-none');
                 imageFields.classList.add('d-none');
-            } else if (type === 'DISPLAY' || type === 'DEMAND_GEN') {
+            } else if (type === 'DISPLAY') {
                 searchFields.classList.remove('d-none');
                 videoFields.classList.add('d-none');
+                imageFields.classList.remove('d-none');
+            } else if (type === 'DEMAND_GEN') {
+                searchFields.classList.remove('d-none');
+                videoFields.classList.remove('d-none');   // ✅ visible for DEMAND_GEN
                 imageFields.classList.remove('d-none');
             }
         }
         toggleCampaignFields();
 
-        // ---------- Form Logic ----------
+        // ============================================================
+        // YouTube ID extraction
+        // ============================================================
+        function extractYouTubeId(input) {
+            if (!input) return '';
+            input = input.trim();
+
+            // Already an ID?
+            if (/^[a-zA-Z0-9_-]{11}$/.test(input)) return input;
+
+            // Try to extract from common URL forms
+            const patterns = [
+                /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/,
+            ];
+            for (const p of patterns) {
+                const m = input.match(p);
+                if (m) return m[1];
+            }
+            return input;
+        }
+
+        // ============================================================
+        // Image handling — auto-crop in browser + preview
+        // ============================================================
         let b64_square = '';
         let b64_landscape = '';
         let b64_logo = '';
 
-        function toBase64(file, cb) {
-            const r = new FileReader();
-            r.onload = e => cb(e.target.result);
-            r.readAsDataURL(file);
+        function cropImageToRatio(dataUri, targetRatio) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => {
+                    const w = img.width, h = img.height;
+                    const currentRatio = w / h;
+
+                    if (Math.abs(currentRatio - targetRatio) / targetRatio <= 0.01) {
+                        return resolve(dataUri);
+                    }
+
+                    let srcX = 0, srcY = 0, cropW = w, cropH = h;
+                    if (currentRatio > targetRatio) {
+                        cropW = Math.round(h * targetRatio);
+                        srcX  = Math.round((w - cropW) / 2);
+                    } else {
+                        cropH = Math.round(w / targetRatio);
+                        srcY  = Math.round((h - cropH) / 2);
+                    }
+
+                    const canvas = document.createElement('canvas');
+                    canvas.width  = cropW;
+                    canvas.height = cropH;
+                    const ctx = canvas.getContext('2d');
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, cropW, cropH);
+                    ctx.drawImage(img, srcX, srcY, cropW, cropH, 0, 0, cropW, cropH);
+                    resolve(canvas.toDataURL('image/jpeg', 0.9));
+                };
+                img.onerror = () => reject('Could not read image');
+                img.src = dataUri;
+            });
         }
 
-        document.getElementById('image-upload').addEventListener('change', e => {
-            if(e.target.files[0]) {
-                if (!['image/jpeg', 'image/png', 'image/gif'].includes(e.target.files[0].type)) return alert('Please upload JPEG, PNG, or GIF only.');
-                toBase64(e.target.files[0], b => b64_square = b);
+        function readFileAsDataUrl(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = e => resolve(e.target.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function showPreview(imgEl, dataUri) {
+            imgEl.src = dataUri;
+            imgEl.classList.remove('d-none');
+        }
+
+        document.getElementById('image-upload').addEventListener('change', async e => {
+            if (!e.target.files[0]) return;
+            if (!['image/jpeg', 'image/png', 'image/gif'].includes(e.target.files[0].type)) {
+                return alert('Please upload JPEG, PNG, or GIF only.');
+            }
+            try {
+                const raw = await readFileAsDataUrl(e.target.files[0]);
+                b64_square = await cropImageToRatio(raw, 1.0);
+                showPreview(document.getElementById('preview-square'), b64_square);
+            } catch (err) {
+                alert('Square image: ' + err);
             }
         });
 
-        document.getElementById('image-landscape-upload').addEventListener('change', e => {
-            if(e.target.files[0]) toBase64(e.target.files[0], b => b64_landscape = b);
+        document.getElementById('image-landscape-upload').addEventListener('change', async e => {
+            if (!e.target.files[0]) return;
+            if (!['image/jpeg', 'image/png', 'image/gif'].includes(e.target.files[0].type)) {
+                return alert('Please upload JPEG, PNG, or GIF only.');
+            }
+            try {
+                const raw = await readFileAsDataUrl(e.target.files[0]);
+                b64_landscape = await cropImageToRatio(raw, 1.91);
+                showPreview(document.getElementById('preview-landscape'), b64_landscape);
+            } catch (err) {
+                alert('Landscape image: ' + err);
+            }
         });
 
-        document.getElementById('image-logo-upload').addEventListener('change', e => {
-            if(e.target.files[0]) toBase64(e.target.files[0], b => b64_logo = b);
+        document.getElementById('image-logo-upload').addEventListener('change', async e => {
+            if (!e.target.files[0]) return;
+            if (!['image/jpeg', 'image/png', 'image/gif'].includes(e.target.files[0].type)) {
+                return alert('Please upload JPEG, PNG, or GIF only.');
+            }
+            try {
+                const raw = await readFileAsDataUrl(e.target.files[0]);
+                b64_logo = await cropImageToRatio(raw, 1.0);
+                showPreview(document.getElementById('preview-logo'), b64_logo);
+            } catch (err) {
+                alert('Logo image: ' + err);
+            }
         });
 
+        // ============================================================
+        // URL scrape
+        // ============================================================
         async function scrapeUrl(event) {
             const urlInput = document.getElementById('url-input').value;
             if (!urlInput) return alert('Enter URL');
             const btn = event.target; btn.innerText = '...'; btn.disabled = true;
             try {
-                const res = await fetch('/api/ads/scrape', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content }, body: JSON.stringify({ url: urlInput }) });
+                const res = await fetch('/api/ads/scrape', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+                    },
+                    body: JSON.stringify({ url: urlInput })
+                });
                 const result = await res.json();
-                if (result.success) document.getElementById('page-content').value = result.data.title + '\n' + result.data.description;
-                else alert('Error');
-            } catch (err) { alert('Failed'); }
-            finally { btn.innerText = 'Fetch'; btn.disabled = false; }
+                if (result.success) {
+                    document.getElementById('page-content').value =
+                        result.data.title + '\n' + result.data.description;
+                } else {
+                    alert('Error: ' + (result.error || 'unknown'));
+                }
+            } catch (err) {
+                alert('Failed');
+            } finally {
+                btn.innerText = 'Fetch'; btn.disabled = false;
+            }
         }
 
+        // ============================================================
+        // Gemini ad-copy generation (gemini-3.5-flash-lite — as required)
+        // ============================================================
         async function generateAdCampaign() {
             const apiKey = document.getElementById('gemini-key').value;
             const content = document.getElementById('page-content').value;
             if (!apiKey || !content) return alert('Provide Key & URL');
-            const btn = document.getElementById('btn-generate'); btn.innerText = 'Generating...'; btn.disabled = true;
+
+            const btn = document.getElementById('btn-generate');
+            btn.innerText = 'Generating...'; btn.disabled = true;
+
             const prompt = `Return JSON: { "googleHeadlines": ["h1","h2","h3"], "googleDescriptions": ["d1","d2"], "metaPrimary": "caption", "keywords": ["k1"..."k35"] } based on: ${content}`;
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`;
+
             try {
-                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) });
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: prompt }] }],
+                        generationConfig: { responseMimeType: 'application/json', temperature: 0.4 }
+                    })
+                });
                 const data = await res.json();
                 if (data.error) throw new Error(data.error.message);
-                const json = JSON.parse(data.candidates[0].content.parts[0].text.trim().replace(/^```json\s*/i, '').replace(/\s*```$/i, ''));
-                document.getElementById('final-keywords').value = json.keywords.join(', ');
-                document.getElementById('g-headlines').value = json.googleHeadlines.join(', ');
-                document.getElementById('g-descriptions').value = json.googleDescriptions.join(', ');
-                document.getElementById('m-primary').value = json.metaPrimary;
-                if(json.googleHeadlines[0]) document.getElementById('video-headline').value = json.googleHeadlines[0];
-            } catch (e) { alert(e.message); }
-            finally { btn.innerText = '🪄 Generate Copy'; btn.disabled = false; }
+
+                let raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+                raw = raw.trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '');
+                const json = JSON.parse(raw);
+
+                document.getElementById('final-keywords').value = (json.keywords || []).join(', ');
+                document.getElementById('g-headlines').value = (json.googleHeadlines || []).join(', ');
+                document.getElementById('g-descriptions').value = (json.googleDescriptions || []).join(', ');
+                document.getElementById('m-primary').value = json.metaPrimary || '';
+                if (json.googleHeadlines && json.googleHeadlines[0]) {
+                    document.getElementById('video-headline').value = json.googleHeadlines[0];
+                }
+            } catch (e) {
+                alert('Gemini failed: ' + e.message);
+            } finally {
+                btn.innerText = '🪄 Generate Copy'; btn.disabled = false;
+            }
         }
 
-        function checkAspectRatio(base64, expectedRatio, fieldName) {
-            return new Promise((resolve, reject) => {
+        // ============================================================
+        // Non-blocking ratio warning
+        // ============================================================
+        function warnAspectRatio(base64, expectedRatio, fieldName) {
+            return new Promise((resolve) => {
                 const img = new Image();
                 img.onload = () => {
                     const ratio = img.width / img.height;
                     const diff = Math.abs(ratio - expectedRatio) / expectedRatio;
-                    if (diff > 0.02) { // Allow 2% error for manual crops
-                        reject(`${fieldName}: Expected ratio ${expectedRatio}, got ${ratio.toFixed(2)} (${img.width}x${img.height})`);
+                    if (diff > 0.05) {
+                        resolve(confirm(
+                            `${fieldName} ratio mismatch:\n` +
+                            `  Expected ~${expectedRatio.toFixed(2)}:1\n` +
+                            `  Got ${ratio.toFixed(2)}:1 (${img.width}x${img.height})\n\n` +
+                            `The server will auto-crop it. Continue?`
+                        ));
                     } else {
                         resolve(true);
                     }
                 };
-                img.onerror = () => reject(`Could not read ${fieldName}`);
+                img.onerror = () => resolve(false);
                 img.src = base64;
             });
         }
 
+        // ============================================================
+        // Publish campaign
+        // ============================================================
         async function executePush() {
             const btn = document.getElementById('btn-push');
             btn.innerText = 'Launching...';
@@ -603,28 +755,54 @@
 
             const type = document.getElementById('google-campaign-type').value;
 
-            const headlines = document.getElementById('g-headlines').value.split(',').map(s => s.trim()).filter(s => s);
-            const descriptions = document.getElementById('g-descriptions').value.split(',').map(s => s.trim()).filter(s => s);
+            const headlines = document.getElementById('g-headlines').value
+                .split(',').map(s => s.trim()).filter(s => s);
+            const descriptions = document.getElementById('g-descriptions').value
+                .split(',').map(s => s.trim()).filter(s => s);
 
-            // VALIDATE IMAGE RATIOS BEFORE SENDING
+            // ---- HARD GUARD: DEMAND_GEN requires a valid YouTube ID ----
+            let youtubeIdValue = '';
+            if (type === 'DEMAND_GEN') {
+                const rawYt = (document.getElementById('youtube-id')?.value || '').trim();
+                if (!rawYt) {
+                    alert('Demand Gen campaigns require a YouTube Video ID.\n\nPaste the 11-character video ID (e.g. dQw4w9WgXcQ) or a full YouTube URL.');
+                    btn.innerText = '🚀 Launch Campaign'; btn.disabled = false;
+                    return;
+                }
+                const parsed = extractYouTubeId(rawYt);
+                if (!/^[a-zA-Z0-9_-]{11}$/.test(parsed)) {
+                    alert('Invalid YouTube Video ID: "' + parsed + '"\n\nExpected exactly 11 characters (A-Z, a-z, 0-9, -, _).\n\nExample: dQw4w9WgXcQ');
+                    btn.innerText = '🚀 Launch Campaign'; btn.disabled = false;
+                    return;
+                }
+                youtubeIdValue = parsed;
+            } else {
+                // Non-DEMAND_GEN: send empty string, backend `nullable` accepts it
+                youtubeIdValue = '';
+            }
+
+            // ---- Image ratio warnings ----
             if (type === 'DISPLAY' || type === 'DEMAND_GEN') {
-                if (!b64_square) { alert('Square image is required.'); btn.innerText = '🚀 Launch Campaign'; btn.disabled = false; return; }
-                if (!b64_landscape && type === 'DISPLAY') { alert('Landscape image is required.'); btn.innerText = '🚀 Launch Campaign'; btn.disabled = false; return; }
-
-                try {
-                    await checkAspectRatio(b64_square, 1.0, 'Square Image');
-                    if (b64_landscape && type === 'DISPLAY') {
-                        await checkAspectRatio(b64_landscape, 1.91, 'Landscape Image');
-                    }
-                    if (b64_logo) {
-                        // Display logo is cropped to 4:1 server-side (cropToRatio(..., 4.0));
-                        // Demand Gen logo is used as-is, so require 1:1.
-                        const logoRatio = type === 'DISPLAY' ? 4.0 : 1.0;
-                        await checkAspectRatio(b64_logo, logoRatio, 'Logo');
-                    }
-                } catch (err) {
-                    alert("Image Ratio Error: " + err);
+                if (!b64_square) {
+                    alert('Square image is required.');
                     btn.innerText = '🚀 Launch Campaign'; btn.disabled = false; return;
+                }
+                if (!b64_landscape && type === 'DISPLAY') {
+                    alert('Landscape image is required.');
+                    btn.innerText = '🚀 Launch Campaign'; btn.disabled = false; return;
+                }
+                if (!(await warnAspectRatio(b64_square, 1.0, 'Square Image'))) {
+                    btn.innerText = '🚀 Launch Campaign'; btn.disabled = false; return;
+                }
+                if (b64_landscape && type === 'DISPLAY') {
+                    if (!(await warnAspectRatio(b64_landscape, 1.91, 'Landscape Image'))) {
+                        btn.innerText = '🚀 Launch Campaign'; btn.disabled = false; return;
+                    }
+                }
+                if (b64_logo) {
+                    if (!(await warnAspectRatio(b64_logo, 1.0, 'Logo'))) {
+                        btn.innerText = '🚀 Launch Campaign'; btn.disabled = false; return;
+                    }
                 }
             }
 
@@ -637,25 +815,54 @@
                 currency: document.getElementById('pub-currency').value,
                 target_countries: Array.from(document.getElementById('pub-countries').selectedOptions).map(o => o.value),
 
-                keywords: document.getElementById('final-keywords').value.split(',').map(s=>s.trim()),
+                keywords: document.getElementById('final-keywords').value
+                    .split(',').map(s => s.trim()).filter(s => s),
                 headlines: headlines.length ? headlines : [document.getElementById('video-headline').value],
                 descriptions: descriptions,
-                youtube_video_id: document.getElementById('youtube-id').value,
+
+                // ✅ always a string; empty for non-DEMAND_GEN
+                youtube_video_id: youtubeIdValue,
 
                 image_base64: b64_square,
                 image_landscape_b64: b64_landscape,
                 image_logo_b64: b64_logo,
             };
 
+            console.log('Publishing payload:', payload); // debug aid
+
             try {
-                const res = await fetch('/api/ads/publish', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content }, body: JSON.stringify(payload) });
+                const res = await fetch('/api/ads/publish', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+                    },
+                    body: JSON.stringify(payload)
+                });
                 const result = await res.json();
+
                 if (result.success) {
-                    alert('✅ Campaign Pushed Successfully!');
+                    if (result.errors) {
+                        alert('⚠️ Partially launched. Errors: ' + JSON.stringify(result.errors));
+                    } else {
+                        alert('✅ Campaign Pushed Successfully!');
+                    }
                     window.location.reload();
-                } else throw new Error(result.error);
-            } catch (err) { alert('❌ Failed: ' + err.message); }
-            finally { btn.innerText = '🚀 Launch Campaign'; btn.disabled = false; }
+                } else {
+                    // Show Laravel validation errors nicely
+                    if (result.errors) {
+                        const lines = Object.entries(result.errors)
+                            .map(([field, msgs]) => `• ${field}: ${Array.isArray(msgs) ? msgs.join(', ') : msgs}`);
+                        throw new Error('Validation failed:\n' + lines.join('\n'));
+                    }
+                    throw new Error(result.error || result.message || 'Unknown error');
+                }
+            } catch (err) {
+                alert('❌ Failed: ' + err.message);
+            } finally {
+                btn.innerText = '🚀 Launch Campaign';
+                btn.disabled = false;
+            }
         }
     </script>
 </body>

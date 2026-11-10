@@ -5,6 +5,7 @@ namespace App\Services;
 use Google\Ads\GoogleAds\Lib\V26\GoogleAdsClientBuilder;
 use Google\Ads\GoogleAds\Lib\OAuth2TokenBuilder;
 use Google\Ads\GoogleAds\V26\Services\SearchGoogleAdsStreamRequest;
+use Google\Ads\GoogleAds\V26\Errors\GoogleAdsException; // FIX #F
 use Illuminate\Support\Facades\Log;
 
 class ReportingService
@@ -21,13 +22,11 @@ class ReportingService
             $googleAdsClient = (new GoogleAdsClientBuilder())
                 ->withDeveloperToken(env('GOOGLE_ADS_DEVELOPER_TOKEN'))
                 ->withOAuth2Credential($oAuth2Credential)
-                // ->withLoginCustomerId(env('GOOGLE_ADS_MANAGER_ID')) // uncomment if you access via MCC
                 ->build();
 
             $customerId = env('GOOGLE_ADS_CUSTOMER_ID') ?? env('GOOGLE_ADS_MANAGER_ID');
 
             // ---------- QUERY 1: Campaign list WITHOUT any metrics ----------
-            // No metrics.* fields => Google returns campaigns even if they have zero spend.
             $campaignQuery = "
                 SELECT
                     campaign.id,
@@ -56,7 +55,7 @@ class ReportingService
                 ];
             }
 
-            // ---------- QUERY 2: Metrics for the chart (separate query) ----------
+            // ---------- QUERY 2: Metrics for the chart ----------
             $chartData = [];
             $metricQuery = "
                 SELECT
@@ -81,23 +80,24 @@ class ReportingService
                     $cost       = $row->getMetrics()->getCostMicros() / 1000000;
                     $date       = $row->getSegments()->getDate();
 
-                    // Roll up into the campaign row
                     if (isset($campaigns[$campaignId])) {
                         $campaigns[$campaignId]['clicks']      += $clicks;
                         $campaigns[$campaignId]['impressions'] += $impressions;
                         $campaigns[$campaignId]['cost']        += $cost;
                     }
 
-                    // Roll up into the chart
                     if (!isset($chartData[$date])) {
                         $chartData[$date] = ['date' => $date, 'clicks' => 0, 'impressions' => 0];
                     }
                     $chartData[$date]['clicks']      += $clicks;
                     $chartData[$date]['impressions'] += $impressions;
                 }
-            } catch (\Exception $metricEx) {
-                // Metric query failing should NOT break the campaign table
-                Log::warning('Chart metrics query failed: ' . $metricEx->getMessage());
+            } catch (GoogleAdsException $metricEx) {
+                $msgs = [];
+                foreach ($metricEx->getErrors() as $err) {
+                    $msgs[] = $err->getMessage();
+                }
+                Log::warning('Chart metrics query failed: ' . implode('; ', $msgs));
             }
 
             ksort($chartData);
@@ -107,6 +107,13 @@ class ReportingService
                 'chart_data' => array_values($chartData),
             ];
 
+        } catch (GoogleAdsException $e) {
+            $msgs = [];
+            foreach ($e->getErrors() as $err) {
+                $msgs[] = $err->getMessage();
+            }
+            Log::error('Google Metrics Error: ' . implode('; ', $msgs));
+            return ['campaigns' => [], 'chart_data' => []];
         } catch (\Exception $e) {
             Log::error('Google Metrics Error: ' . $e->getMessage());
             return ['campaigns' => [], 'chart_data' => []];
